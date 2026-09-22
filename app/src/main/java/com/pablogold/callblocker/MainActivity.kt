@@ -100,7 +100,7 @@ fun MainScreen() {
         ) {
             when (selectedTabIndex) {
                 0 -> HistoryTab(blockedCalls = blockedCalls, database = database)
-                1 -> SettingsTab(settingsManager = settingsManager)
+                1 -> SettingsTab(settingsManager = settingsManager, database = database)
             }
         }
     }
@@ -252,10 +252,16 @@ fun BlockedCallItem(
 }
 
 @Composable
-fun SettingsTab(settingsManager: SettingsManager) {
+fun SettingsTab(settingsManager: SettingsManager, database: AppDatabase) {
     val context = LocalContext.current
     val coroutineScope = rememberCoroutineScope()
     val roleManager = remember { context.getSystemService(Context.ROLE_SERVICE) as? RoleManager }
+
+    val rawWhitelist by database.temporaryWhitelistDao().getAllTemporaryWhitelist().collectAsState(initial = emptyList())
+    val activeWhitelist = remember(rawWhitelist) {
+        val now = System.currentTimeMillis()
+        rawWhitelist.filter { it.expiresAt > now }
+    }
 
     var hasContactsPermission by remember {
         mutableStateOf(
@@ -511,6 +517,72 @@ fun SettingsTab(settingsManager: SettingsManager) {
                                     },
                                     contentPadding = PaddingValues(horizontal = 12.dp)
                                 ) { Text("+") }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // Bloco 4: Números Liberados Temporariamente (24h)
+        item {
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
+            ) {
+                Column(modifier = Modifier.padding(16.dp)) {
+                    Text(
+                        text = "Liberados Temporariamente (${activeWhitelist.size})",
+                        style = MaterialTheme.typography.titleMedium
+                    )
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Text(
+                        text = "Números autorizados a tocar nas próximas 24 horas",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+
+                    Spacer(modifier = Modifier.height(12.dp))
+
+                    if (activeWhitelist.isEmpty()) {
+                        Text(
+                            text = "Nenhum número liberado no momento.",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    } else {
+                        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            activeWhitelist.forEach { item ->
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Column(modifier = Modifier.weight(1f)) {
+                                        Text(
+                                            text = item.phoneNumber,
+                                            style = MaterialTheme.typography.titleSmall
+                                        )
+                                        Text(
+                                            text = "Expira em: ${DateFormatter.format(item.expiresAt)}",
+                                            style = MaterialTheme.typography.bodySmall,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                                        )
+                                    }
+                                    IconButton(
+                                        onClick = {
+                                            coroutineScope.launch {
+                                                database.temporaryWhitelistDao().removeFromWhitelist(item.phoneNumber)
+                                                Toast.makeText(context, "Número ${item.phoneNumber} removido da liberação!", Toast.LENGTH_SHORT).show()
+                                            }
+                                        }
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.Delete,
+                                            contentDescription = "Remover liberação"
+                                        )
+                                    }
+                                }
                             }
                         }
                     }

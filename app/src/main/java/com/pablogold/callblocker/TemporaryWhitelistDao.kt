@@ -4,12 +4,16 @@ import androidx.room.Dao
 import androidx.room.Insert
 import androidx.room.OnConflictStrategy
 import androidx.room.Query
+import kotlinx.coroutines.flow.Flow
 
 @Dao
 @JvmSuppressWildcards
 interface TemporaryWhitelistDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun addTemporaryWhitelist(item: TemporaryWhitelistEntity): Long
+
+    @Query("SELECT * FROM temporary_whitelist ORDER BY expiresAt DESC")
+    fun getAllTemporaryWhitelist(): Flow<List<TemporaryWhitelistEntity>>
 
     @Query("SELECT * FROM temporary_whitelist WHERE phoneNumber = :phoneNumber AND expiresAt > :now")
     suspend fun isWhitelisted(phoneNumber: String, now: Long): TemporaryWhitelistEntity?
