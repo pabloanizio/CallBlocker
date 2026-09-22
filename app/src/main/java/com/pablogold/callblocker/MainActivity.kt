@@ -140,18 +140,25 @@ fun BlockedCallItem(call: BlockedCallEntity) {
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Column {
+            Column(modifier = Modifier.weight(1f)) {
                 Text(
                     text = call.phoneNumber.ifBlank { "Número Privado / Oculto" },
                     style = MaterialTheme.typography.titleMedium
                 )
                 Spacer(modifier = Modifier.height(4.dp))
                 Text(
+                    text = "Motivo: ${call.reason}",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                Spacer(modifier = Modifier.height(2.dp))
+                Text(
                     text = DateFormatter.format(call.timestamp),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
             }
+            Spacer(modifier = Modifier.width(8.dp))
             Surface(
                 color = MaterialTheme.colorScheme.errorContainer,
                 shape = MaterialTheme.shapes.small

@@ -9,5 +9,6 @@ data class BlockedCallEntity(
     val id: Long = 0,
     val phoneNumber: String,
     val timestamp: Long = System.currentTimeMillis(),
-    val actionTaken: String
+    val actionTaken: String,
+    val reason: String = "Fora da agenda"
 )

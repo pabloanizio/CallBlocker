@@ -48,11 +48,12 @@ class CallScreeningServiceImpl : CallScreeningService() {
         }
 
         // 3. Regra de Emergência: Repetição recente
+        var recentAttempts = 0
         if (isEmergencyEnabled && rawNumber.isNotBlank()) {
             val windowMillis = windowMinutes * 60 * 1000L
             val sinceTimestamp = System.currentTimeMillis() - windowMillis
 
-            val recentAttempts = runBlocking {
+            recentAttempts = runBlocking {
                 database.blockedCallDao().countRecentAttempts(rawNumber, sinceTimestamp)
             }
 
@@ -65,13 +66,21 @@ class CallScreeningServiceImpl : CallScreeningService() {
             }
         }
 
-        // 4. Bloqueia e salva no histórico
-        Log.d("CallBlocker", "🚫 BLOQUEADA: Fora da agenda ('$rawNumber'). Ação: $actionMode")
+        // 4. Determinar o motivo exato do bloqueio
+        val blockReason = when {
+            rawNumber.isBlank() -> "Número Privado / Oculto"
+            isEmergencyEnabled -> "Fora da agenda (Tentativa ${recentAttempts + 1} de $requiredAttempts)"
+            else -> "Fora da agenda"
+        }
+
+        // 5. Bloqueia e salva no histórico
+        Log.d("CallBlocker", "🚫 BLOQUEADA: '$rawNumber'. Motivo: '$blockReason'. Ação: $actionMode")
         runBlocking {
             database.blockedCallDao().insert(
                 BlockedCallEntity(
                     phoneNumber = rawNumber,
-                    actionTaken = if (actionMode == "REJECT") "REJEITADA" else "SILENCIADA"
+                    actionTaken = if (actionMode == "REJECT") "REJEITADA" else "SILENCIADA",
+                    reason = blockReason
                 )
             )
         }
@@ -105,7 +114,6 @@ class CallScreeningServiceImpl : CallScreeningService() {
         return try {
             val uri = ContactsContract.CommonDataKinds.Phone.CONTENT_URI
 
-            // Campos que precisamos inspecionar
             val projection = arrayOf(
                 ContactsContract.CommonDataKinds.Phone.CONTACT_ID,
                 ContactsContract.CommonDataKinds.Phone.DISPLAY_NAME,
@@ -113,7 +121,6 @@ class CallScreeningServiceImpl : CallScreeningService() {
                 ContactsContract.CommonDataKinds.Phone.IN_VISIBLE_GROUP
             )
 
-            // Filtro: deve coincidir com o final do número E fazer parte do grupo visível (agenda real)
             val selection = "${ContactsContract.CommonDataKinds.Phone.NUMBER} LIKE ? AND ${ContactsContract.CommonDataKinds.Phone.IN_VISIBLE_GROUP} = 1"
             val selectionArgs = arrayOf("%$suffix")
 
@@ -132,8 +139,6 @@ class CallScreeningServiceImpl : CallScreeningService() {
                     val storedNumber = if (numberIndex != -1) cursor.getString(numberIndex)?.filter { it.isDigit() } ?: "" else ""
                     val cleanDisplayName = displayName.filter { it.isDigit() }
 
-                    // Se o nome exibido for vazio OU for idêntico ao próprio número,
-                    // significa que é um número do histórico/recente e NÃO um contato salvo de verdade
                     val isJustTheNumber = cleanDisplayName.isNotBlank() && cleanDisplayName == storedNumber
 
                     if (displayName.isNotBlank() && !isJustTheNumber) {
