@@ -5,10 +5,15 @@ import androidx.room.Database
 import androidx.room.Room
 import androidx.room.RoomDatabase
 
-@Database(entities = [BlockedCallEntity::class], version = 2, exportSchema = false)
+@Database(
+    entities = [BlockedCallEntity::class, TemporaryWhitelistEntity::class],
+    version = 3,
+    exportSchema = false
+)
 abstract class AppDatabase : RoomDatabase() {
 
     abstract fun blockedCallDao(): BlockedCallDao
+    abstract fun temporaryWhitelistDao(): TemporaryWhitelistDao
 
     companion object {
         @Volatile

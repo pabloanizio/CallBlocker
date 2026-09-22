@@ -3,8 +3,11 @@ package com.pablogold.callblocker
 import android.Manifest
 import android.app.role.RoleManager
 import android.content.Context
+import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Bundle
+import android.provider.ContactsContract
+import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
@@ -18,7 +21,9 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import kotlinx.coroutines.launch
@@ -94,7 +99,7 @@ fun MainScreen() {
                 .padding(paddingValues)
         ) {
             when (selectedTabIndex) {
-                0 -> HistoryTab(blockedCalls = blockedCalls)
+                0 -> HistoryTab(blockedCalls = blockedCalls, database = database)
                 1 -> SettingsTab(settingsManager = settingsManager)
             }
         }
@@ -102,7 +107,11 @@ fun MainScreen() {
 }
 
 @Composable
-fun HistoryTab(blockedCalls: List<BlockedCallEntity>) {
+fun HistoryTab(blockedCalls: List<BlockedCallEntity>, database: AppDatabase) {
+    val context = LocalContext.current
+    val coroutineScope = rememberCoroutineScope()
+    val clipboardManager = LocalClipboardManager.current
+
     if (blockedCalls.isEmpty()) {
         Box(
             modifier = Modifier.fillMaxSize(),
@@ -121,54 +130,122 @@ fun HistoryTab(blockedCalls: List<BlockedCallEntity>) {
             verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
             items(blockedCalls, key = { it.id }) { call ->
-                BlockedCallItem(call = call)
+                BlockedCallItem(
+                    call = call,
+                    onCopyNumber = { number ->
+                        clipboardManager.setText(AnnotatedString(number))
+                        Toast.makeText(context, "Número $number copiado!", Toast.LENGTH_SHORT).show()
+                    },
+                    onSaveContact = { number ->
+                        val intent = Intent(Intent.ACTION_INSERT).apply {
+                            type = ContactsContract.Contacts.CONTENT_TYPE
+                            putExtra(ContactsContract.Intents.Insert.PHONE, number)
+                        }
+                        try {
+                            context.startActivity(intent)
+                        } catch (_: Exception) {
+                            Toast.makeText(context, "Não foi possível abrir a agenda", Toast.LENGTH_SHORT).show()
+                        }
+                    },
+                    onAllow24h = { number ->
+                        coroutineScope.launch {
+                            val expiresAt = System.currentTimeMillis() + (24 * 60 * 60 * 1000L)
+                            database.temporaryWhitelistDao().addTemporaryWhitelist(
+                                TemporaryWhitelistEntity(phoneNumber = number, expiresAt = expiresAt)
+                            )
+                            Toast.makeText(context, "Número $number liberado por 24 horas!", Toast.LENGTH_LONG).show()
+                        }
+                    }
+                )
             }
         }
     }
 }
 
 @Composable
-fun BlockedCallItem(call: BlockedCallEntity) {
+fun BlockedCallItem(
+    call: BlockedCallEntity,
+    onCopyNumber: (String) -> Unit,
+    onSaveContact: (String) -> Unit,
+    onAllow24h: (String) -> Unit
+) {
     Card(
         modifier = Modifier.fillMaxWidth(),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
     ) {
-        Row(
+        Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(16.dp),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically
+                .padding(16.dp)
         ) {
-            Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    text = call.phoneNumber.ifBlank { "Número Privado / Oculto" },
-                    style = MaterialTheme.typography.titleMedium
-                )
-                Spacer(modifier = Modifier.height(4.dp))
-                Text(
-                    text = "Motivo: ${call.reason}",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-                Spacer(modifier = Modifier.height(2.dp))
-                Text(
-                    text = DateFormatter.format(call.timestamp),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-            }
-            Spacer(modifier = Modifier.width(8.dp))
-            Surface(
-                color = MaterialTheme.colorScheme.errorContainer,
-                shape = MaterialTheme.shapes.small
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
             ) {
-                Text(
-                    text = call.actionTaken,
-                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onErrorContainer
-                )
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = call.phoneNumber.ifBlank { "Número Privado / Oculto" },
+                        style = MaterialTheme.typography.titleMedium
+                    )
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Text(
+                        text = "Motivo: ${call.reason}",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Spacer(modifier = Modifier.height(2.dp))
+                    Text(
+                        text = DateFormatter.format(call.timestamp),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+                Spacer(modifier = Modifier.width(8.dp))
+                Surface(
+                    color = MaterialTheme.colorScheme.errorContainer,
+                    shape = MaterialTheme.shapes.small
+                ) {
+                    Text(
+                        text = call.actionTaken,
+                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onErrorContainer
+                    )
+                }
+            }
+
+            if (call.phoneNumber.isNotBlank()) {
+                HorizontalDivider(modifier = Modifier.padding(vertical = 12.dp))
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    OutlinedButton(
+                        onClick = { onCopyNumber(call.phoneNumber) },
+                        modifier = Modifier.weight(1f),
+                        contentPadding = PaddingValues(horizontal = 4.dp, vertical = 2.dp)
+                    ) {
+                        Text(text = "Copiar", style = MaterialTheme.typography.labelMedium)
+                    }
+
+                    OutlinedButton(
+                        onClick = { onSaveContact(call.phoneNumber) },
+                        modifier = Modifier.weight(1f),
+                        contentPadding = PaddingValues(horizontal = 4.dp, vertical = 2.dp)
+                    ) {
+                        Text(text = "Salvar", style = MaterialTheme.typography.labelMedium)
+                    }
+
+                    OutlinedButton(
+                        onClick = { onAllow24h(call.phoneNumber) },
+                        modifier = Modifier.weight(1f),
+                        contentPadding = PaddingValues(horizontal = 4.dp, vertical = 2.dp)
+                    ) {
+                        Text(text = "Liberar 24h", style = MaterialTheme.typography.labelMedium)
+                    }
+                }
             }
         }
     }

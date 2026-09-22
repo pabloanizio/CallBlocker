@@ -32,7 +32,19 @@ class CallScreeningServiceImpl : CallScreeningService() {
             return
         }
 
-        // 1. Identificação de contato nativo (apenas contactDisplayName)
+        // 1. Verificação de Whitelist Temporária
+        if (rawNumber.isNotBlank()) {
+            val isWhitelisted = runBlocking {
+                database.temporaryWhitelistDao().isWhitelisted(rawNumber, System.currentTimeMillis()) != null
+            }
+            if (isWhitelisted) {
+                Log.d("CallBlocker", "✅ APROVADA: Whitelist temporária ativa para '$rawNumber'")
+                allowCall(callDetails)
+                return
+            }
+        }
+
+        // 2. Identificação de contato nativo (apenas contactDisplayName)
         val contactName = callDetails.contactDisplayName
         if (!contactName.isNullOrBlank()) {
             Log.d("CallBlocker", "✅ APROVADA: Identificado na agenda pelo sistema ($contactName)")
@@ -40,14 +52,14 @@ class CallScreeningServiceImpl : CallScreeningService() {
             return
         }
 
-        // 2. Consulta manual na agenda (ContactsContract)
+        // 3. Consulta manual na agenda (ContactsContract)
         if (isSavedInContacts(applicationContext, rawNumber)) {
             Log.d("CallBlocker", "✅ APROVADA: Encontrado na agenda local")
             allowCall(callDetails)
             return
         }
 
-        // 3. Regra de Emergência: Repetição recente
+        // 4. Regra de Emergência: Repetição recente
         var recentAttempts = 0
         if (isEmergencyEnabled && rawNumber.isNotBlank()) {
             val windowMillis = windowMinutes * 60 * 1000L
@@ -66,14 +78,14 @@ class CallScreeningServiceImpl : CallScreeningService() {
             }
         }
 
-        // 4. Determinar o motivo exato do bloqueio
+        // 5. Determinar o motivo exato do bloqueio
         val blockReason = when {
             rawNumber.isBlank() -> "Número Privado / Oculto"
             isEmergencyEnabled -> "Fora da agenda (Tentativa ${recentAttempts + 1} de $requiredAttempts)"
             else -> "Fora da agenda"
         }
 
-        // 5. Bloqueia e salva no histórico
+        // 6. Bloqueia e salva no histórico
         Log.d("CallBlocker", "🚫 BLOQUEADA: '$rawNumber'. Motivo: '$blockReason'. Ação: $actionMode")
         runBlocking {
             database.blockedCallDao().insert(
